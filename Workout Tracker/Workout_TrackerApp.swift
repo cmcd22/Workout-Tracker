@@ -10,7 +10,6 @@ import CoreData
 
 @main
 struct Workout_TrackerApp: App {
-    @StateObject private var workoutStore = WorkoutStore()
     let persistenceController = PersistenceController.shared
 
     var body: some Scene {

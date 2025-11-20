@@ -1,6 +1,47 @@
 import SwiftUI
 import CoreData
 
+// MARK: - Exercise Usage Tracker
+
+class ExerciseUsageTracker {
+    static let shared = ExerciseUsageTracker()
+    private let keyPrefix = "exerciseUsage_"
+    private let threshold = 3 // Number of workouts before showing suggestions
+
+    func logExercise(sessionType: String, exerciseName: String) {
+        let key = keyPrefix + sessionType
+        var dict = UserDefaults.standard.dictionary(forKey: key) as? [String: Int] ?? [:]
+        dict[exerciseName, default: 0] += 1
+        UserDefaults.standard.setValue(dict, forKey: key)
+    }
+    
+    func commonExercises(for sessionType: String, count: Int = 6) -> [String] {
+        let key = keyPrefix + sessionType
+        let dict = UserDefaults.standard.dictionary(forKey: key) as? [String: Int] ?? [:]
+        return Array(dict.sorted { $0.value > $1.value }.prefix(count).map { $0.key })
+    }
+    
+    func hasEnoughHistory(for sessionType: String) -> Bool {
+        let key = keyPrefix + sessionType
+        let dict = UserDefaults.standard.dictionary(forKey: key) as? [String: Int] ?? [:]
+        let total = dict.values.reduce(0, +)
+        return total >= threshold
+    }
+    
+    func allSavedExercises() -> [String] {
+        let defaults = UserDefaults.standard
+        var allExercisesSet = Set<String>()
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(keyPrefix) {
+            if let dict = defaults.dictionary(forKey: key) as? [String: Int] {
+                for exercise in dict.keys {
+                    allExercisesSet.insert(exercise)
+                }
+            }
+        }
+        return Array(allExercisesSet).sorted()
+    }
+}
+
 // MARK: - Simple in-memory models for the current workout screen
 
 struct LoggedSet: Identifiable {
@@ -19,13 +60,13 @@ struct LoggedExercise: Identifiable {
 // MARK: - Session Types
 
 let sessionTypes: [String] = [
-    "Push",
     "Pull",
-    "Legs",
-    "Upper",
-    "Lower",
-    "Full Body",
-    "Cardio"
+    "Push",
+    "Legs/Abs",
+    "Back/Chest",
+    "Arms",
+    "Abs/Legs",
+    "Other"
 ]
 
 // MARK: - Exercise Presets
@@ -188,20 +229,24 @@ struct ExerciseSelectionView: View {
     let workoutDate: Date
     
     @State private var loggedExercises: [LoggedExercise] = []
+    @State private var showingAddNewPrompt: Bool = false
+    @State private var newExerciseName: String = ""
+    @State private var showingExerciseDetail: Bool = false
+    
+    @State private var showingSearchPrompt: Bool = false
+    @State private var searchText: String = ""
+    @State private var searchResults: [String] = []
+    @State private var selectedSearchExercise: String?
     
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
     
     var exercises: [String] {
-        ExercisePresets.exercisesBySessionType[sessionType] ??
-        [
-            "Exercise 1",
-            "Exercise 2",
-            "Exercise 3",
-            "Exercise 4",
-            "Exercise 5",
-            "Exercise 6"
-        ]
+        if ExerciseUsageTracker.shared.hasEnoughHistory(for: sessionType) {
+            return ExerciseUsageTracker.shared.commonExercises(for: sessionType)
+        } else {
+            return []
+        }
     }
     
     var body: some View {
@@ -216,28 +261,31 @@ struct ExerciseSelectionView: View {
             
             Divider()
             
-            Text("Select an exercise:")
-                .font(.headline)
-            
-            VStack(spacing: 12) {
-                ForEach(exercises, id: \.self) { exercise in
-                    NavigationLink {
-                        ExerciseDetailView(
-                            exerciseName: exercise,
-                            onLog: { sets in
-                                let logged = LoggedExercise(name: exercise, sets: sets)
-                                loggedExercises.append(logged)
+            if !exercises.isEmpty {
+                Text("Select an exercise:")
+                    .font(.headline)
+                
+                VStack(spacing: 12) {
+                    ForEach(exercises, id: \.self) { exercise in
+                        NavigationLink {
+                            ExerciseDetailView(
+                                exerciseName: exercise,
+                                onLog: { sets in
+                                    let logged = LoggedExercise(name: exercise, sets: sets)
+                                    loggedExercises.append(logged)
+                                    ExerciseUsageTracker.shared.logExercise(sessionType: sessionType, exerciseName: exercise)
+                                }
+                            )
+                        } label: {
+                            HStack {
+                                Text(exercise)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "chevron.right")
                             }
-                        )
-                    } label: {
-                        HStack {
-                            Text(exercise)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Image(systemName: "chevron.right")
+                            .padding()
                         }
-                        .padding()
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
             
@@ -255,7 +303,7 @@ struct ExerciseSelectionView: View {
             
             VStack(spacing: 12) {
                 Button {
-                    print("Add New Exercise tapped")
+                    showingAddNewPrompt = true
                 } label: {
                     Text("Add New")
                         .frame(maxWidth: .infinity)
@@ -265,7 +313,9 @@ struct ExerciseSelectionView: View {
                 .buttonStyle(.borderedProminent)
                 
                 Button {
-                    print("Search tapped")
+                    showingSearchPrompt = true
+                    searchText = ""
+                    searchResults = []
                 } label: {
                     Text("Search")
                         .frame(maxWidth: .infinity)
@@ -286,12 +336,91 @@ struct ExerciseSelectionView: View {
         .padding()
         .navigationTitle("Exercises")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Enter Exercise Name", isPresented: $showingAddNewPrompt, actions: {
+            TextField("Exercise name", text: $newExerciseName)
+            Button("Cancel", role: .cancel) {
+                newExerciseName = ""
+            }
+            Button("Add") {
+                let trimmed = newExerciseName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                showingExerciseDetail = true
+            }
+            .disabled(newExerciseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        })
+        .sheet(isPresented: $showingExerciseDetail) {
+            ExerciseDetailView(
+                exerciseName: newExerciseName,
+                onLog: { sets in
+                    let logged = LoggedExercise(name: newExerciseName, sets: sets)
+                    loggedExercises.append(logged)
+                    ExerciseUsageTracker.shared.logExercise(sessionType: sessionType, exerciseName: newExerciseName)
+                    newExerciseName = ""
+                    showingExerciseDetail = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingSearchPrompt) {
+            NavigationStack {
+                VStack {
+                    TextField("Search exercises", text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .padding()
+                        .onChange(of: searchText) { newValue in
+                            let allExercises = ExerciseUsageTracker.shared.allSavedExercises()
+                            if newValue.isEmpty {
+                                searchResults = []
+                            } else {
+                                searchResults = allExercises.filter {
+                                    $0.range(of: newValue, options: .caseInsensitive) != nil
+                                }
+                            }
+                        }
+                    
+                    if searchResults.isEmpty && !searchText.isEmpty {
+                        Text("No matches found")
+                            .foregroundColor(.secondary)
+                            .padding()
+                    }
+                    
+                    List {
+                        ForEach(searchResults, id: \.self) { exercise in
+                            Button {
+                                selectedSearchExercise = exercise
+                                showingSearchPrompt = false
+                            } label: {
+                                Text(exercise)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Search Exercises")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showingSearchPrompt = false
+                        }
+                    }
+                }
+            }
+        }
+        .onChange(of: selectedSearchExercise) { newValue in
+            if let exercise = newValue {
+                showingExerciseDetail = true
+                newExerciseName = exercise
+                selectedSearchExercise = nil
+            }
+        }
     }
     
     private func finishWorkout() {
         let nonEmptyExercises = loggedExercises.filter { !$0.sets.isEmpty }
         guard !nonEmptyExercises.isEmpty else {
             dismiss()
+            DispatchQueue.main.async {
+                dismiss()
+            }
             return
         }
         
@@ -324,6 +453,9 @@ struct ExerciseSelectionView: View {
         }
         
         dismiss()
+        DispatchQueue.main.async {
+            dismiss()
+        }
     }
 }
 
@@ -335,8 +467,14 @@ struct ExerciseDetailView: View {
     
     @Environment(\.dismiss) private var dismiss
     
-    @State private var sets: [LoggedSet] = (1...5).map {
-        LoggedSet(setNumber: $0, weight: "", reps: "")
+    @State private var sets: [LoggedSet]
+    
+    init(exerciseName: String, onLog: @escaping ([LoggedSet]) -> Void, sets: [LoggedSet]? = nil) {
+        self.exerciseName = exerciseName
+        self.onLog = onLog
+        _sets = State(initialValue: sets ?? (1...5).map {
+            LoggedSet(setNumber: $0, weight: "", reps: "")
+        })
     }
     
     var body: some View {
@@ -535,4 +673,8 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
     
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+#Preview {
+    ContentView()
 }
