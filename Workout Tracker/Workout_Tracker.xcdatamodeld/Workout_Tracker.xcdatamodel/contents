@@ -4,7 +4,7 @@
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="order" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
-        <relationship name="sets" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="SetEntry" inverseName="exercise" inverseEntity="SetEntry"/>
+        <relationship name="sets" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="SetEntry" inverseName="exercise" inverseEntity="SetEntry"/>
         <relationship name="workout" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Workout" inverseName="exercises" inverseEntity="Workout"/>
     </entity>
     <entity name="SetEntry" representedClassName=".SetEntry" syncable="YES" codeGenerationType="class">
@@ -18,6 +18,6 @@
         <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="sessionType" optional="YES" attributeType="String"/>
-        <relationship name="exercises" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ExerciseEntry" inverseName="workout" inverseEntity="ExerciseEntry"/>
+        <relationship name="exercises" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="ExerciseEntry" inverseName="workout" inverseEntity="ExerciseEntry"/>
     </entity>
 </model>
